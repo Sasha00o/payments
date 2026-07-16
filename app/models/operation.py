@@ -1,4 +1,4 @@
-from datetime import datetime,
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -16,13 +16,9 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
+from sqlalchemy.orm import Mapped, mapped_column
+from app.core.database.base import Base
 from app.constants import CallbackResult, EventType, IntentStatus, OperationStatus
-
-
-class Base(DeclarativeBase):
-    pass
 
 
 class Operation(Base):

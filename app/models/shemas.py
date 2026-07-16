@@ -9,9 +9,12 @@ from app.constants import CallbackResult, EventType, OperationStatus
 
 
 class CreateOperationRequest(BaseModel):
-    operationId: str = Field(..., description="Уникальный идентификатор операции")
-    amount: str = Field(..., pattern=r"^\d+\.\d{1,2}$", description="Сумма в формате 0.00")
-    currency: str = Field(..., pattern="^RUB$", description="Валюта (только RUB)")
+    operationId: str = Field(...,
+                             description="Уникальный идентификатор операции")
+    amount: str = Field(..., pattern=r"^\d+\.\d{1,2}$",
+                        description="Сумма в формате 0.00")
+    currency: str = Field(..., pattern="^RUB$",
+                          description="Валюта (только RUB)")
     description: Optional[str] = Field(None, description="Описание операции")
 
     @field_validator("amount")
@@ -27,14 +30,12 @@ class CreateOperationRequest(BaseModel):
 
 
 class OperationResponse(BaseModel):
-    id: str
+    OperationId: str
     amount: str
     currency: str
     description: Optional[str]
     status: OperationStatus
     providerPaymentId: Optional[UUID] = None
-    createdAt: datetime
-    updatedAt: datetime
 
     model_config = {"from_attributes": True}
 
