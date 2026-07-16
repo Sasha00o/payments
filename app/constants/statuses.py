@@ -1,0 +1,27 @@
+from enum import Enum
+
+
+class OperationStatus(str, Enum):
+    CREATED = "CREATED"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+
+
+class IntentStatus(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+
+
+class CallbackResult(str, Enum):
+    COMPLETED = "COMPLETED"
+    REJECTED = "REJECTED"
+
+
+class EventType(str, Enum):
+    CREATED = "CREATED"
+    SUBMIT_REQUESTED = "SUBMIT_REQUESTED"
+    CALLBACK_RECEIVED = "CALLBACK_RECEIVED"
+    PROVIDER_RESPONSE_RECEIVED = "PROVIDER_RESPONSE_RECEIVED"
