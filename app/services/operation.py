@@ -2,6 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 
 import structlog
+from fastapi import status
 from sqlalchemy.exc import IntegrityError
 
 from app.constants import EventType, OperationStatus
@@ -47,3 +48,31 @@ class OperationService:
         Получение операции по ID
         """
         return await OperationRepository.find_by_id(operation_id)
+
+    @staticmethod
+    async def submit_operation(operation_id: str) -> tuple[Operation, int]:
+        """
+        Отправка операции провайдеру.
+        """
+        try:
+            operation, intent_created = await OperationRepository.submit_operation(operation_id)
+
+            if intent_created:
+                logger.info(
+                    "submit_intent_created",
+                    operation_id=operation_id,
+                    status=operation.status,
+                )
+                return operation, status.HTTP_202_ACCEPTED
+            else:
+                logger.info(
+                    "submit_idempotent",
+                    operation_id=operation_id,
+                    status=operation.status,
+                )
+                return operation, status.HTTP_200_OK
+
+        except ValueError as e:
+            logger.error("submit_operation_not_found",
+                         operation_id=operation_id)
+            raise
