@@ -20,7 +20,8 @@ class EventRepository(BaseRepository):
                 .order_by(Event.event_id.asc())
             )
             result = await session.execute(stmt)
-            if len(list(result.scalars().all())) == 0:
+            events = list(result.scalars().all())
+            if not events:
                 raise ValueError(
                     f'Events for this operation {operation_id} not found')
-            return list(result.scalars().all())
+            return events

@@ -4,7 +4,7 @@ import structlog
 from fastapi import APIRouter, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 
-from app.models import CreateOperationRequest, EventResponse, OperationResponse, ReceiptRequest
+from app.models import CreateOperationRequest, EventResponse, OperationResponse
 from app.services.operation import OperationService
 
 logger = structlog.get_logger()
@@ -90,19 +90,3 @@ async def get_conversion_history(id: str) -> List[EventResponse]:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f'Event with operation id {id} not found',
         ) from exc
-
-
-receipt_router = APIRouter(tags=['Receipts'])
-
-
-@receipt_router.post('/receipts', status_code=status.HTTP_204_NO_CONTENT)
-async def receive_receipt(request: ReceiptRequest) -> Response:
-    try:
-        await OperationService.handle_receipt(request)
-        return Response(status_code=status.HTTP_204_NO_CONTENT)
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND,
-                            detail='Operation not found') from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT,
-                            detail='Provider payment id mismatch') from exc

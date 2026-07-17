@@ -175,6 +175,9 @@ class OperationRepository(BaseRepository):
                 if operation is None:
                     return None
 
+                if intent.status == IntentStatus.COMPLETED:
+                    return operation
+
                 intent.status = IntentStatus.COMPLETED
                 intent.next_retry_at = None
                 intent.updated_at = datetime.utcnow()
@@ -182,14 +185,15 @@ class OperationRepository(BaseRepository):
                 if provider_payment_id and operation.provider_payment_id is None:
                     operation.provider_payment_id = UUID(provider_payment_id)
 
-                event = Event(
-                    operation_id=operation.id,
-                    event_type=EventType.PROVIDER_RESPONSE_RECEIVED,
-                    from_status=operation.status,
-                    to_status=operation.status,
-                    message='Provider response received',
-                )
-                session.add(event)
+                if operation.status == OperationStatus.PROCESSING:
+                    event = Event(
+                        operation_id=operation.id,
+                        event_type=EventType.PROVIDER_RESPONSE_RECEIVED,
+                        from_status=operation.status,
+                        to_status=operation.status,
+                        message='Provider response received',
+                    )
+                    session.add(event)
 
                 await session.flush()
                 await session.refresh(operation)
