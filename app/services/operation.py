@@ -1,21 +1,23 @@
-from app.repositories.event import EventRepository
-from datetime import datetime
+from __future__ import annotations
+
+import asyncio
 from decimal import Decimal
 
 import structlog
 from fastapi import status
 from sqlalchemy.exc import IntegrityError
 
-from app.constants import EventType, OperationStatus
-from app.models import CreateOperationRequest, Event, Operation
-from app.repositories import OperationRepository
-
+from app.constants import OperationStatus
+from app.models import CreateOperationRequest, Event, Operation, ReceiptRequest
+from app.repositories import EventRepository, OperationRepository
+from app.services.provider import ProviderService
+from app.services.receipt import ReceiptService
 
 logger = structlog.get_logger()
 
 
 class OperationService:
-    """Сервис для работы с операциями"""
+    """Сервис для управления жизненным циклом операций."""
 
     @staticmethod
     async def create_operation(request: CreateOperationRequest) -> Operation:
@@ -28,74 +30,115 @@ class OperationService:
             )
 
             logger.info(
-                "operation_created",
+                'operation_created',
                 operation_id=request.operationId,
                 amount=request.amount,
                 currency=request.currency,
             )
-
             return operation
-
         except IntegrityError:
-            logger.warning(
-                "operation_duplicate",
-                operation_id=request.operationId,
-            )
+            logger.warning('operation_duplicate',
+                           operation_id=request.operationId)
             raise
 
     @staticmethod
     async def get_operation(operation_id: str) -> Operation | None:
-        """
-        Получение операции по ID
-        """
-        return await OperationRepository.find_by_id(operation_id)
+        return await OperationRepository.get_operation(operation_id)
 
     @staticmethod
     async def submit_operation(operation_id: str) -> tuple[Operation, int]:
-        """
-        Отправка операции провайдеру.
-        """
         try:
             operation, intent_created = await OperationRepository.submit_operation(operation_id)
-
             if intent_created:
-                logger.info(
-                    "submit_intent_created",
-                    operation_id=operation_id,
-                    status=operation.status,
-                )
+                logger.info('submit_intent_created',
+                            operation_id=operation_id, status=operation.status)
                 return operation, status.HTTP_202_ACCEPTED
-            else:
-                logger.info(
-                    "submit_idempotent",
-                    operation_id=operation_id,
-                    status=operation.status,
-                )
-                return operation, status.HTTP_200_OK
 
+            logger.info('submit_idempotent',
+                        operation_id=operation_id, status=operation.status)
+            return operation, status.HTTP_200_OK
         except ValueError:
-            logger.error("submit_operation_not_found",
+            logger.error('submit_operation_not_found',
                          operation_id=operation_id)
             raise
 
     @staticmethod
+    async def handle_receipt(request: ReceiptRequest) -> tuple[Operation, int]:
+        return await ReceiptService.handle(request)
+
+    @staticmethod
     async def get_conversion_history(operation_id: str) -> list[Event]:
-        """
-        Получение всех событий операции, отсортированных по event_id
-        """
         try:
             events = await EventRepository.get_operation_events(operation_id)
-
-            logger.info(
-                "operation_history_retrieved",
-                operation_id=operation_id,
-                events_count=len(events),
-            )
-
+            logger.info('operation_history_retrieved',
+                        operation_id=operation_id, events_count=len(events))
             return events
         except ValueError:
-            logger.error(
-                "event_for_this_operation_not_found",
-                operation_id=operation_id,
-            )
+            logger.error('event_for_this_operation_not_found',
+                         operation_id=operation_id)
             raise
+
+    @staticmethod
+    async def process_pending_submissions() -> None:
+        intents = await OperationRepository.get_pending_intents()
+        for intent in intents:
+            operation = await OperationRepository.get_operation(intent.operation_id)
+            if operation is None:
+                continue
+            if operation.status in {OperationStatus.COMPLETED, OperationStatus.REJECTED}:
+                await OperationRepository.mark_submit_success(intent.id, None)
+                continue
+
+            await OperationRepository.start_submit_attempt(intent.id)
+            try:
+                await ProviderService.submit(operation, intent)
+            except Exception as exc:
+                logger.exception(
+                    'submit_attempt_failed',
+                    operation_id=operation.id,
+                    intent_id=intent.id,
+                    error=str(exc),
+                )
+                await OperationRepository.mark_submit_retry(
+                    intent.id,
+                    retry_delay_seconds=ProviderService._retry_delay_seconds(
+                        intent.attempt_count),
+                )
+
+        recovered_operations = await OperationRepository.get_processing_operations_without_intent()
+        for operation in recovered_operations:
+            # Восстанавливаем намерение отправки для операций в PROCESSING после перезапуска.
+            await OperationRepository.submit_operation(operation.id)
+            matching_intents = await OperationRepository.get_pending_intents()
+            if not matching_intents:
+                continue
+            recovered_intent = next(
+                (item for item in matching_intents if item.operation_id == operation.id),
+                None,
+            )
+            if recovered_intent is None:
+                continue
+            await OperationRepository.start_submit_attempt(recovered_intent.id)
+            try:
+                await ProviderService.submit(operation, recovered_intent)
+            except Exception as exc:
+                logger.exception(
+                    'recovered_submit_attempt_failed',
+                    operation_id=operation.id,
+                    intent_id=recovered_intent.id,
+                    error=str(exc),
+                )
+                await OperationRepository.mark_submit_retry(
+                    recovered_intent.id,
+                    retry_delay_seconds=ProviderService._retry_delay_seconds(
+                        recovered_intent.attempt_count),
+                )
+
+
+async def run_submission_worker() -> None:
+    while True:
+        try:
+            await OperationService.process_pending_submissions()
+        except Exception as exc:  # pragma: no cover - служебный защитный обработчик
+            logger.exception('submission_worker_failed', error=str(exc))
+        await asyncio.sleep(1)

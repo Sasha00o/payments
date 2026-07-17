@@ -44,6 +44,8 @@ class ReceiptRequest(BaseModel):
     providerPaymentId: UUID = Field(..., description="ID платежа у провайдера")
     operationId: str = Field(..., description="ID операции")
     result: CallbackResult = Field(..., description="Результат платежа")
+    message: Optional[str] = Field(None, description="Текст квитанции")
+    occurredAt: Optional[datetime] = Field(None, description="Время квитанции")
 
 
 class EventResponse(BaseModel):

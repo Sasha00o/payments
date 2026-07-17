@@ -1,6 +1,7 @@
+from typing import Literal
+
 from pydantic import computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import Literal
 
 
 class Settings(BaseSettings):
@@ -12,6 +13,8 @@ class Settings(BaseSettings):
     DB_PASS: str
     DB_NAME: str
 
+    PROVIDER_URL: str = 'http://provider-simulator:8081'
+    PROVIDER_TIMEOUT_SECONDS: float = 5.0
     LOG_LEVEL: Literal['DEBUG', 'INFO',
                        'WARNING', 'ERROR', 'CRITICAL'] = 'DEBUG'
 
