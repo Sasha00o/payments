@@ -13,8 +13,8 @@ configure_logging()
 logger = get_logger(__name__)
 logger.info('application_started', version='1.0.0')
 
-app.include_router(operation_router, prefix='/api/v1')
-app.include_router(receipt_router, prefix='/api/v1')
+app.include_router(operation_router)
+app.include_router(receipt_router)
 
 
 @app.get('/health')
