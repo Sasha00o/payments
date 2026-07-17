@@ -48,7 +48,6 @@ class ReceiptRequest(BaseModel):
 
 class EventResponse(BaseModel):
     eventId: int
-    operationId: str
     eventType: EventType
     fromStatus: Optional[OperationStatus]
     toStatus: OperationStatus

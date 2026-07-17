@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException, status, Response
 from sqlalchemy.exc import IntegrityError
 import structlog
+from typing import List
 
-from app.models import CreateOperationRequest, OperationResponse
+from app.models import CreateOperationRequest, OperationResponse, EventResponse
 from app.services.operation import OperationService
 
 logger = structlog.get_logger()
@@ -55,4 +56,30 @@ async def submit_operation(id: str, response: Response) -> OperationResponse:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Operation with id {id} not found"
+        )
+
+
+@router.get('/{id}/events', response_model=List[EventResponse])
+async def get_conversion_history(id: str) -> List[EventResponse]:
+    """
+    Получение всех событий операции, отсортированных по event_id
+    """
+    try:
+        events = await OperationService.get_conversion_history(id)
+
+        return [
+            EventResponse(
+                eventId=event.event_id,
+                eventType=event.event_type,
+                fromStatus=event.from_status,
+                toStatus=event.to_status,
+                message=event.message,
+                occurredAt=event.occurred_at,
+            )
+            for event in events
+        ]
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Event with operation id {id} not found"
         )

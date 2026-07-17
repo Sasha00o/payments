@@ -1,3 +1,4 @@
+from app.repositories.event import EventRepository
 from datetime import datetime
 from decimal import Decimal
 
@@ -72,7 +73,29 @@ class OperationService:
                 )
                 return operation, status.HTTP_200_OK
 
-        except ValueError as e:
+        except ValueError:
             logger.error("submit_operation_not_found",
                          operation_id=operation_id)
+            raise
+
+    @staticmethod
+    async def get_conversion_history(operation_id: str) -> list[Event]:
+        """
+        Получение всех событий операции, отсортированных по event_id
+        """
+        try:
+            events = await EventRepository.get_operation_events(operation_id)
+
+            logger.info(
+                "operation_history_retrieved",
+                operation_id=operation_id,
+                events_count=len(events),
+            )
+
+            return events
+        except ValueError:
+            logger.error(
+                "event_for_this_operation_not_found",
+                operation_id=operation_id,
+            )
             raise
