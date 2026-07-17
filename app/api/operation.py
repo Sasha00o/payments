@@ -17,7 +17,7 @@ async def create_operation(request: CreateOperationRequest) -> OperationResponse
     try:
         operation = await OperationService.create_operation(request)
         return OperationResponse(
-            OperationId=operation.id,
+            operationId=operation.id,
             amount=str(operation.amount),
             currency=operation.currency,
             description=operation.description,
@@ -39,7 +39,7 @@ async def get_operation(id: str) -> OperationResponse:
                             detail=f'Operation with id {id} not found')
 
     return OperationResponse(
-        OperationId=operation.id,
+        operationId=operation.id,
         amount=str(operation.amount),
         currency=operation.currency,
         description=operation.description,
@@ -55,7 +55,7 @@ async def submit_operation(id: str, response: Response) -> OperationResponse:
         operation, status_code = await OperationService.submit_operation(id)
         response.status_code = status_code
         return OperationResponse(
-            OperationId=operation.id,
+            operationId=operation.id,
             amount=str(operation.amount),
             currency=operation.currency,
             description=operation.description,
@@ -77,7 +77,7 @@ async def get_conversion_history(id: str) -> List[EventResponse]:
         return [
             EventResponse(
                 eventId=event.event_id,
-                eventType=event.event_type,
+                type=event.event_type,
                 fromStatus=event.from_status,
                 toStatus=event.to_status,
                 message=event.message,

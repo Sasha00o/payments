@@ -30,7 +30,7 @@ class CreateOperationRequest(BaseModel):
 
 
 class OperationResponse(BaseModel):
-    OperationId: str
+    operationId: str
     amount: str
     currency: str
     description: Optional[str]
@@ -50,7 +50,7 @@ class ReceiptRequest(BaseModel):
 
 class EventResponse(BaseModel):
     eventId: int
-    eventType: EventType
+    type: EventType
     fromStatus: Optional[OperationStatus]
     toStatus: OperationStatus
     message: Optional[str]
