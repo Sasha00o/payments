@@ -7,6 +7,7 @@ from uuid import UUID
 from sqlalchemy import and_, or_, select
 
 from app.constants import CallbackResult, EventType, IntentStatus, OperationStatus
+from app.core.config import settings
 from app.core.database.engine import async_session_maker
 from app.models.operation import Event, Operation, ProcessedCallback, SubmitIntent
 from app.repositories.base import BaseRepository
@@ -81,7 +82,7 @@ class OperationRepository(BaseRepository):
                     operation_id=operation_id,
                     status=IntentStatus.PENDING,
                     attempt_count=0,
-                    next_retry_at=datetime.utcnow(),
+                    next_retry_at=datetime.now(),
                 )
                 session.add(intent)
 
@@ -141,6 +142,84 @@ class OperationRepository(BaseRepository):
             return list(result.scalars().all())
 
     @classmethod
+    async def get_stale_processing_intents(cls, stale_seconds: float) -> list[SubmitIntent]:
+        async with async_session_maker() as session:
+            cutoff = datetime.now() - timedelta(seconds=stale_seconds)
+            stmt = (
+                select(SubmitIntent)
+                .where(
+                    and_(
+                        SubmitIntent.status == IntentStatus.PROCESSING,
+                        SubmitIntent.updated_at < cutoff,
+                    )
+                )
+                .order_by(SubmitIntent.id.asc())
+            )
+            result = await session.execute(stmt)
+            return list(result.scalars().all())
+
+    @classmethod
+    async def reset_stale_processing_intent(cls, intent_id: int) -> SubmitIntent | None:
+        async with async_session_maker() as session:
+            async with session.begin():
+                stmt = select(SubmitIntent).where(
+                    SubmitIntent.id == intent_id).with_for_update()
+                result = await session.execute(stmt)
+                intent = result.scalar_one_or_none()
+                if intent is None or intent.status != IntentStatus.PROCESSING:
+                    return None
+
+                if intent.attempt_count >= settings.RETRY_MAX_ATTEMPTS:
+                    return await cls._mark_submit_abandoned_in_session(session, intent)
+
+                intent.status = IntentStatus.FAILED
+                intent.next_retry_at = datetime.now()
+                intent.updated_at = datetime.now()
+                await session.flush()
+                return intent
+
+    @classmethod
+    async def _mark_submit_abandoned_in_session(cls, session, intent: SubmitIntent) -> SubmitIntent:
+        operation_stmt = select(Operation).where(
+            Operation.id == intent.operation_id).with_for_update()
+        operation_result = await session.execute(operation_stmt)
+        operation = operation_result.scalar_one_or_none()
+        if operation is None:
+            return intent
+
+        intent.status = IntentStatus.ABANDONED
+        intent.next_retry_at = None
+        intent.updated_at = datetime.now()
+
+        if operation.status not in {OperationStatus.COMPLETED, OperationStatus.REJECTED}:
+            previous_status = operation.status
+            operation.status = OperationStatus.REJECTED
+            event = Event(
+                operation_id=operation.id,
+                event_type=EventType.SUBMIT_ABANDONED,
+                from_status=previous_status,
+                to_status=OperationStatus.REJECTED,
+                message='Submit abandoned after max retry attempts',
+            )
+            session.add(event)
+
+        await session.flush()
+        return intent
+
+    @classmethod
+    async def mark_submit_abandoned(cls, intent_id: int) -> SubmitIntent | None:
+        async with async_session_maker() as session:
+            async with session.begin():
+                stmt = select(SubmitIntent).where(
+                    SubmitIntent.id == intent_id).with_for_update()
+                result = await session.execute(stmt)
+                intent = result.scalar_one_or_none()
+                if intent is None:
+                    return None
+
+                return await cls._mark_submit_abandoned_in_session(session, intent)
+
+    @classmethod
     async def start_submit_attempt(cls, intent_id: int) -> SubmitIntent | None:
         async with async_session_maker() as session:
             async with session.begin():
@@ -153,7 +232,7 @@ class OperationRepository(BaseRepository):
 
                 intent.status = IntentStatus.PROCESSING
                 intent.attempt_count += 1
-                intent.updated_at = datetime.utcnow()
+                intent.updated_at = datetime.now()
                 await session.flush()
                 return intent
 
@@ -180,7 +259,7 @@ class OperationRepository(BaseRepository):
 
                 intent.status = IntentStatus.COMPLETED
                 intent.next_retry_at = None
-                intent.updated_at = datetime.utcnow()
+                intent.updated_at = datetime.now()
 
                 if provider_payment_id and operation.provider_payment_id is None:
                     operation.provider_payment_id = UUID(provider_payment_id)
@@ -210,9 +289,12 @@ class OperationRepository(BaseRepository):
                 if intent is None:
                     return None
 
+                if intent.attempt_count >= settings.RETRY_MAX_ATTEMPTS:
+                    return await cls._mark_submit_abandoned_in_session(session, intent)
+
                 intent.status = IntentStatus.FAILED
-                intent.next_retry_at = datetime.utcnow() + timedelta(seconds=retry_delay_seconds)
-                intent.updated_at = datetime.utcnow()
+                intent.next_retry_at = datetime.now() + timedelta(seconds=retry_delay_seconds)
+                intent.updated_at = datetime.now()
                 await session.flush()
                 return intent
 
@@ -258,7 +340,7 @@ class OperationRepository(BaseRepository):
                     provider_payment_id=provider_payment_id,
                     operation_id=operation_id,
                     result=result,
-                    processed_at=datetime.utcnow(),
+                    processed_at=datetime.now(),
                 )
                 session.add(callback)
 

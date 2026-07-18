@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-import random
-from typing import Any
-
 import httpx
 import structlog
 from fastapi import status
 
 from app.core.config import settings
-from app.models import Operation
+from app.core.retry import compute_retry_delay
+from app.models import Operation, SubmitIntent
 from app.repositories import OperationRepository
 
 logger = structlog.get_logger()
@@ -18,7 +16,7 @@ class ProviderService:
     """Сервис для взаимодействия с внешним провайдером платежей."""
 
     @staticmethod
-    async def submit(operation: Operation, intent: Any) -> None:
+    async def submit(operation: Operation, intent: SubmitIntent) -> None:
         payload = {
             'operationId': operation.id,
             'amount': str(operation.amount),
@@ -43,8 +41,7 @@ class ProviderService:
             )
             await OperationRepository.mark_submit_retry(
                 intent.id,
-                retry_delay_seconds=ProviderService._retry_delay_seconds(
-                    intent.attempt_count),
+                retry_delay_seconds=compute_retry_delay(intent.attempt_count),
             )
             return
 
@@ -74,8 +71,7 @@ class ProviderService:
             )
             await OperationRepository.mark_submit_retry(
                 intent.id,
-                retry_delay_seconds=ProviderService._retry_delay_seconds(
-                    intent.attempt_count),
+                retry_delay_seconds=compute_retry_delay(intent.attempt_count),
             )
             return
 
@@ -87,12 +83,5 @@ class ProviderService:
         )
         await OperationRepository.mark_submit_retry(
             intent.id,
-            retry_delay_seconds=ProviderService._retry_delay_seconds(
-                intent.attempt_count),
+            retry_delay_seconds=compute_retry_delay(intent.attempt_count),
         )
-
-    @staticmethod
-    def _retry_delay_seconds(attempt_count: int) -> float:
-        base_delay = min(2**max(attempt_count, 1), 8)
-        jitter = random.uniform(0, 0.5)
-        return base_delay + jitter

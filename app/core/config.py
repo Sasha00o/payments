@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: Literal['DEBUG', 'INFO',
                        'WARNING', 'ERROR', 'CRITICAL'] = 'DEBUG'
 
+    RETRY_BASE_DELAY: float = 2.0
+    RETRY_MAX_DELAY: float = 8.0
+    RETRY_JITTER_MAX: float = 0.5
+    RETRY_MAX_ATTEMPTS: int = 10
+    WORKER_POLL_INTERVAL: float = 1.0
+    INTENT_STALE_SECONDS: float = 60.0
+
     @computed_field
     @property
     def DATABASE_URL(self) -> str:

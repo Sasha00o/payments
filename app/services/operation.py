@@ -8,6 +8,8 @@ from fastapi import status
 from sqlalchemy.exc import IntegrityError
 
 from app.constants import OperationStatus
+from app.core.config import settings
+from app.core.retry import compute_retry_delay
 from app.models import CreateOperationRequest, Event, Operation, ReceiptRequest
 from app.repositories import EventRepository, OperationRepository
 from app.services.provider import ProviderService
@@ -101,7 +103,7 @@ class OperationService:
                 )
                 await OperationRepository.mark_submit_retry(
                     intent.id,
-                    retry_delay_seconds=ProviderService._retry_delay_seconds(
+                    retry_delay_seconds=compute_retry_delay(
                         intent.attempt_count),
                 )
 
@@ -130,7 +132,7 @@ class OperationService:
                 )
                 await OperationRepository.mark_submit_retry(
                     recovered_intent.id,
-                    retry_delay_seconds=ProviderService._retry_delay_seconds(
+                    retry_delay_seconds=compute_retry_delay(
                         recovered_intent.attempt_count),
                 )
 
@@ -141,4 +143,4 @@ async def run_submission_worker() -> None:
             await OperationService.process_pending_submissions()
         except Exception as exc:  # pragma: no cover - служебный защитный обработчик
             logger.exception('submission_worker_failed', error=str(exc))
-        await asyncio.sleep(1)
+        await asyncio.sleep(settings.WORKER_POLL_INTERVAL)
