@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     WORKER_POLL_INTERVAL: float = 1.0
     INTENT_STALE_SECONDS: float = 60.0
 
+    LOG_JSON: bool = False
+
     @computed_field
     @property
     def DATABASE_URL(self) -> str:

@@ -5,10 +5,13 @@ from app.api.receipts import router as receipt_router
 from app.api.operation import router as operation_router
 from app.core.logger import configure_logging, get_logger
 from app.services.operation import run_submission_worker
+from app.core.config import settings
 
 app = FastAPI()
 
-configure_logging()
+configure_logging(
+    log_level=settings.LOG_LEVEL,
+    json_logs=settings.LOG_JSON)
 
 logger = get_logger(__name__)
 logger.info('application_started', version='1.0.0')

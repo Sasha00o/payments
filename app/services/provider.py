@@ -31,10 +31,15 @@ class ProviderService:
 
         try:
             async with httpx.AsyncClient(timeout=settings.PROVIDER_TIMEOUT_SECONDS) as client:
+                logger.info(
+                    "provider_submit_started",
+                    operation_id=operation.id,
+                    attempt=intent.attempt_count,
+                )
                 response = await client.post(url, json=payload, headers=headers)
         except httpx.HTTPError as exc:
             logger.warning(
-                'provider_request_failed',
+                "provider_submit_retry",
                 operation_id=operation.id,
                 attempt=intent.attempt_count,
                 error=str(exc),
@@ -55,7 +60,7 @@ class ProviderService:
                 'providerPaymentId') if isinstance(body, dict) else None
             await OperationRepository.mark_submit_success(intent.id, provider_payment_id)
             logger.info(
-                'provider_response_received',
+                "provider_submit_success",
                 operation_id=operation.id,
                 provider_payment_id=provider_payment_id,
                 status_code=response.status_code,
@@ -64,22 +69,21 @@ class ProviderService:
 
         if response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE:
             logger.warning(
-                'provider_temporarily_unavailable',
+                "provider_submit_retry",
                 operation_id=operation.id,
-                status_code=response.status_code,
                 attempt=intent.attempt_count,
+                status_code=response.status_code,
             )
             await OperationRepository.mark_submit_retry(
                 intent.id,
                 retry_delay_seconds=compute_retry_delay(intent.attempt_count),
             )
             return
-
         logger.warning(
-            'provider_request_failed',
+            "provider_submit_retry",
             operation_id=operation.id,
-            status_code=response.status_code,
             attempt=intent.attempt_count,
+            status_code=response.status_code,
         )
         await OperationRepository.mark_submit_retry(
             intent.id,

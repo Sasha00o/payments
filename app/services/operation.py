@@ -6,6 +6,7 @@ from decimal import Decimal
 import structlog
 from fastapi import status
 from sqlalchemy.exc import IntegrityError
+from app.core.logger import bind_context, clear_context
 
 from app.constants import OperationStatus
 from app.core.config import settings
@@ -92,20 +93,29 @@ class OperationService:
                 continue
 
             await OperationRepository.start_submit_attempt(intent.id)
+
+            bind_context(
+                operation_id=operation.id,
+                intent_id=intent.id,
+                attempt=intent.attempt_count,
+            )
+
             try:
                 await ProviderService.submit(operation, intent)
             except Exception as exc:
                 logger.exception(
-                    'submit_attempt_failed',
-                    operation_id=operation.id,
-                    intent_id=intent.id,
+                    "submit_attempt_failed",
                     error=str(exc),
+                    attempt=intent.attempt_count,
                 )
+
                 await OperationRepository.mark_submit_retry(
                     intent.id,
                     retry_delay_seconds=compute_retry_delay(
                         intent.attempt_count),
                 )
+            finally:
+                clear_context()
 
         recovered_operations = await OperationRepository.get_processing_operations_without_intent()
         for operation in recovered_operations:
@@ -121,13 +131,16 @@ class OperationService:
             if recovered_intent is None:
                 continue
             await OperationRepository.start_submit_attempt(recovered_intent.id)
+            bind_context(
+                operation_id=operation.id,
+                intent_id=recovered_intent.id,
+                attempt=recovered_intent.attempt_count,
+            )
             try:
                 await ProviderService.submit(operation, recovered_intent)
             except Exception as exc:
                 logger.exception(
-                    'recovered_submit_attempt_failed',
-                    operation_id=operation.id,
-                    intent_id=recovered_intent.id,
+                    "recovered_submit_attempt_failed",
                     error=str(exc),
                 )
                 await OperationRepository.mark_submit_retry(
@@ -135,6 +148,8 @@ class OperationService:
                     retry_delay_seconds=compute_retry_delay(
                         recovered_intent.attempt_count),
                 )
+            finally:
+                clear_context()
 
 
 async def run_submission_worker() -> None:
