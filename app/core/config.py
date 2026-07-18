@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
+        env_file='.env',
         case_sensitive=True,
         extra="ignore",
     )
@@ -29,6 +30,8 @@ class Settings(BaseSettings):
     INTENT_STALE_SECONDS: float = 60.0
 
     LOG_JSON: bool = False
+
+    METRICS_POLL_INTERVAL: int = 30
 
     @computed_field
     @property

@@ -15,6 +15,10 @@ from app.models import CreateOperationRequest, Event, Operation, ReceiptRequest
 from app.repositories import EventRepository, OperationRepository
 from app.services.provider import ProviderService
 from app.services.receipt import ReceiptService
+from app.core.metrics import (
+    payments_pending_intents,
+    payments_processing_operations,
+)
 
 logger = structlog.get_logger()
 
@@ -151,6 +155,14 @@ class OperationService:
             finally:
                 clear_context()
 
+    @staticmethod
+    async def update_metrics() -> None:
+        pending_intents = await OperationRepository.count_pending_intents()
+        processing_operations = await OperationRepository.count_processing_operations()
+
+        payments_pending_intents.set(pending_intents)
+        payments_processing_operations.set(processing_operations)
+
 
 async def run_submission_worker() -> None:
     while True:
@@ -159,3 +171,13 @@ async def run_submission_worker() -> None:
         except Exception as exc:  # pragma: no cover - служебный защитный обработчик
             logger.exception('submission_worker_failed', error=str(exc))
         await asyncio.sleep(settings.WORKER_POLL_INTERVAL)
+
+
+async def run_metrics_worker() -> None:
+    while True:
+        try:
+            await OperationService.update_metrics()
+        except Exception as exc:
+            logger.exception('metrics_worker_failed', error=str(exc))
+
+        await asyncio.sleep(settings.METRICS_POLL_INTERVAL)

@@ -3,8 +3,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
+from app.core.metrics import (
+    payments_submit_attempts_total,
+    payments_submit_retries_total,
+    payments_stale_intents_reset_total,
+)
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, func, or_, select
 
 from app.constants import CallbackResult, EventType, IntentStatus, OperationStatus
 from app.core.config import settings
@@ -188,6 +193,7 @@ class OperationRepository(BaseRepository):
             return intent
 
         intent.status = IntentStatus.ABANDONED
+        payments_stale_intents_reset_total.inc()
         intent.next_retry_at = None
         intent.updated_at = datetime.now()
 
@@ -232,6 +238,7 @@ class OperationRepository(BaseRepository):
 
                 intent.status = IntentStatus.PROCESSING
                 intent.attempt_count += 1
+                payments_submit_attempts_total.inc()
                 intent.updated_at = datetime.now()
                 await session.flush()
                 return intent
@@ -294,6 +301,9 @@ class OperationRepository(BaseRepository):
 
                 intent.status = IntentStatus.FAILED
                 intent.next_retry_at = datetime.now() + timedelta(seconds=retry_delay_seconds)
+                payments_submit_retries_total.labels(
+                    reason="provider_error",
+                ).inc()
                 intent.updated_at = datetime.now()
                 await session.flush()
                 return intent
@@ -356,3 +366,31 @@ class OperationRepository(BaseRepository):
                 await session.flush()
                 await session.refresh(operation)
                 return operation, True
+
+    @classmethod
+    async def count_pending_intents(cls) -> int:
+        async with async_session_maker() as session:
+            stmt = (
+                select(func.count())
+                .select_from(SubmitIntent)
+                .where(
+                    SubmitIntent.status == IntentStatus.PENDING
+                )
+            )
+
+            result = await session.execute(stmt)
+            return result.scalar_one()
+
+    @classmethod
+    async def count_processing_operations(cls) -> int:
+        async with async_session_maker() as session:
+            stmt = (
+                select(func.count())
+                .select_from(Operation)
+                .where(
+                    Operation.status == OperationStatus.PROCESSING
+                )
+            )
+
+            result = await session.execute(stmt)
+            return result.scalar_one()
