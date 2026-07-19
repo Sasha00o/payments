@@ -87,6 +87,15 @@ class OperationService:
 
     @staticmethod
     async def process_pending_submissions() -> None:
+        stale_intents = await OperationRepository.get_stale_processing_intents(
+            settings.INTENT_STALE_SECONDS
+        )
+
+        for intent in stale_intents:
+            await OperationRepository.reset_stale_processing_intent(
+                intent.id
+            )
+
         intents = await OperationRepository.get_pending_intents()
         for intent in intents:
             operation = await OperationRepository.get_operation(intent.operation_id)
@@ -96,7 +105,10 @@ class OperationService:
                 await OperationRepository.mark_submit_success(intent.id, None)
                 continue
 
-            await OperationRepository.start_submit_attempt(intent.id)
+            intent = await OperationRepository.start_submit_attempt(intent.id)
+
+            if intent is None:
+                continue
 
             bind_context(
                 operation_id=operation.id,
@@ -106,6 +118,7 @@ class OperationService:
 
             try:
                 await ProviderService.submit(operation, intent)
+
             except Exception as exc:
                 logger.exception(
                     "submit_attempt_failed",
@@ -116,42 +129,57 @@ class OperationService:
                 await OperationRepository.mark_submit_retry(
                     intent.id,
                     retry_delay_seconds=compute_retry_delay(
-                        intent.attempt_count),
+                        intent.attempt_count
+                    ),
                 )
+
             finally:
                 clear_context()
 
-        recovered_operations = await OperationRepository.get_processing_operations_without_intent()
+        recovered_operations = (
+            await OperationRepository.get_processing_operations_without_intent()
+        )
+
         for operation in recovered_operations:
-            # Восстанавливаем намерение отправки для операций в PROCESSING после перезапуска.
-            await OperationRepository.submit_operation(operation.id)
-            matching_intents = await OperationRepository.get_pending_intents()
-            if not matching_intents:
-                continue
-            recovered_intent = next(
-                (item for item in matching_intents if item.operation_id == operation.id),
-                None,
+            recovered_intent = await OperationRepository.submit_operation(
+                operation.id
             )
+
             if recovered_intent is None:
                 continue
-            await OperationRepository.start_submit_attempt(recovered_intent.id)
+
+            recovered_intent = await OperationRepository.start_submit_attempt(
+                recovered_intent.id
+            )
+
+            if recovered_intent is None:
+                continue
+
             bind_context(
                 operation_id=operation.id,
                 intent_id=recovered_intent.id,
                 attempt=recovered_intent.attempt_count,
             )
+
             try:
-                await ProviderService.submit(operation, recovered_intent)
+                await ProviderService.submit(
+                    operation,
+                    recovered_intent
+                )
+
             except Exception as exc:
                 logger.exception(
                     "recovered_submit_attempt_failed",
                     error=str(exc),
                 )
+
                 await OperationRepository.mark_submit_retry(
                     recovered_intent.id,
                     retry_delay_seconds=compute_retry_delay(
-                        recovered_intent.attempt_count),
+                        recovered_intent.attempt_count
+                    ),
                 )
+
             finally:
                 clear_context()
 
@@ -164,13 +192,24 @@ class OperationService:
         payments_processing_operations.set(processing_operations)
 
 
-async def run_submission_worker() -> None:
-    while True:
+async def run_submission_worker(shutdown_event: asyncio.Event) -> None:
+    logger.info('submission_worker_started')
+    while not shutdown_event.is_set():
         try:
             await OperationService.process_pending_submissions()
         except Exception as exc:  # pragma: no cover - служебный защитный обработчик
             logger.exception('submission_worker_failed', error=str(exc))
-        await asyncio.sleep(settings.WORKER_POLL_INTERVAL)
+        
+        try:
+            await asyncio.wait_for(
+                shutdown_event.wait(),
+                timeout=settings.WORKER_POLL_INTERVAL,
+            )
+        except asyncio.TimeoutError:
+            pass
+    
+    logger.info('submission_worker_stopping')
+    logger.info('submission_worker_stopped')
 
 
 async def run_metrics_worker() -> None:

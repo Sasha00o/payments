@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 from uuid import UUID
@@ -14,6 +14,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
 )
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -33,9 +34,10 @@ class Operation(Base):
     provider_payment_id: Mapped[Optional[UUID]] = mapped_column(
         PG_UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now)
+        DateTime, nullable=False, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
 
 
 class Event(Base):
@@ -52,7 +54,7 @@ class Event(Base):
         SQLEnum(OperationStatus), nullable=False)
     message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now)
+        DateTime, nullable=False, default=func.now())
 
     __table_args__ = (
         UniqueConstraint("operation_id", "event_type",
@@ -73,9 +75,10 @@ class SubmitIntent(Base):
     next_retry_at: Mapped[Optional[datetime]
                           ] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now)
+        DateTime, nullable=False, default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
 
     __table_args__ = (
         UniqueConstraint("operation_id", name="uq_submit_intent_operation"),
@@ -99,8 +102,8 @@ class ProcessedCallback(Base):
     result: Mapped[CallbackResult] = mapped_column(
         SQLEnum(CallbackResult), nullable=False)
     processed_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.now)
-
+        DateTime, nullable=False, default=func.now()
+    )
     __table_args__ = (
         UniqueConstraint("provider_payment_id", "operation_id",
                          name="uq_processed_callback"),

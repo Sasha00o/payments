@@ -1,4 +1,5 @@
 import asyncio
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI
 from app.api.receipts import router as receipt_router
@@ -8,17 +9,44 @@ from app.services.operation import run_submission_worker, run_metrics_worker
 from app.core.config import settings
 from prometheus_client import make_asgi_app
 
-app = FastAPI()
-
-metrics_app = make_asgi_app()
-app.mount("/metrics", metrics_app)
-
 configure_logging(
     log_level=settings.LOG_LEVEL,
     json_logs=settings.LOG_JSON)
 
 logger = get_logger(__name__)
-logger.info('application_started', version='1.0.0')
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    shutdown_event = asyncio.Event()
+    submission_worker_task = asyncio.create_task(run_submission_worker(shutdown_event))
+    metrics_worker_task = asyncio.create_task(run_metrics_worker())
+    
+    logger.info('application_started', version='1.0.0')
+    
+    yield
+    
+    logger.info('application_shutting_down')
+    
+    shutdown_event.set()
+    
+    if submission_worker_task:
+        submission_worker_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await submission_worker_task
+    
+    if metrics_worker_task:
+        metrics_worker_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await metrics_worker_task
+    
+    logger.info('application_shutdown_complete')
+
+
+app = FastAPI(lifespan=lifespan)
+
+metrics_app = make_asgi_app()
+app.mount("/metrics", metrics_app)
 
 app.include_router(operation_router)
 app.include_router(receipt_router)
@@ -28,12 +56,6 @@ app.include_router(receipt_router)
 async def health():
     logger.info('health_check_call', version='1.0.0')
     return {'status': 'ok', 'service': 'payments', 'version': '1.0.0'}
-
-
-@app.on_event('startup')
-async def startup_event() -> None:
-    asyncio.create_task(run_submission_worker())
-    asyncio.create_task(run_metrics_worker())
 
 
 if __name__ == '__main__':

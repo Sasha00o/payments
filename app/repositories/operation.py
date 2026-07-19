@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from uuid import UUID
+import structlog
 from app.core.metrics import (
     payments_submit_attempts_total,
     payments_submit_retries_total,
@@ -16,6 +17,8 @@ from app.core.config import settings
 from app.core.database.engine import async_session_maker
 from app.models.operation import Event, Operation, ProcessedCallback, SubmitIntent
 from app.repositories.base import BaseRepository
+
+logger = structlog.get_logger()
 
 
 class OperationRepository(BaseRepository):
@@ -110,7 +113,7 @@ class OperationRepository(BaseRepository):
     @classmethod
     async def get_pending_intents(cls) -> list[SubmitIntent]:
         async with async_session_maker() as session:
-            now = datetime.utcnow()
+            now = datetime.now()
             stmt = (
                 select(SubmitIntent)
                 .join(Operation, Operation.id == SubmitIntent.operation_id)
@@ -149,7 +152,8 @@ class OperationRepository(BaseRepository):
     @classmethod
     async def get_stale_processing_intents(cls, stale_seconds: float) -> list[SubmitIntent]:
         async with async_session_maker() as session:
-            cutoff = datetime.now() - timedelta(seconds=stale_seconds)
+            cutoff = datetime.now() - \
+                timedelta(seconds=stale_seconds)
             stmt = (
                 select(SubmitIntent)
                 .where(
@@ -175,11 +179,24 @@ class OperationRepository(BaseRepository):
                     return None
 
                 if intent.attempt_count >= settings.RETRY_MAX_ATTEMPTS:
+                    logger.info(
+                        'stale_intent_reset',
+                        operation_id=intent.operation_id,
+                        attempt=intent.attempt_count,
+                        status='ABANDONED',
+                    )
                     return await cls._mark_submit_abandoned_in_session(session, intent)
 
+                logger.info(
+                    'stale_intent_reset',
+                    operation_id=intent.operation_id,
+                    attempt=intent.attempt_count,
+                    status='FAILED',
+                )
                 intent.status = IntentStatus.FAILED
                 intent.next_retry_at = datetime.now()
                 intent.updated_at = datetime.now()
+                payments_stale_intents_reset_total.inc()
                 await session.flush()
                 return intent
 
