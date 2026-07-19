@@ -1,6 +1,6 @@
 .venv/
 .env
 __pycache__/
-.env-non-dev
-PLAN.md
 TZ.md
+PLAN.md
+.env-non-dev
