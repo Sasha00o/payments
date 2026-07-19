@@ -9,6 +9,27 @@
 
 ## Запуск
 
+Перед запуском необходимо создать файл `.env-non-dev` с переменными окружения для Docker:
+
+```bash
+cp .env.example .env-non-dev
+```
+
+Затем отредактировать `.env-non-dev`:
+- Изменить `DB_HOST` на `Ваше значение`
+- Изменить `DB_PORT` на `Ваше значение`
+- Изменить `DB_PASS` на `Ваше значение`
+- Изменить `DB_USER` на `Ваше значение`
+- Изменить `DB_NAME` на `Ваше значение`
+- Изменить `POSTGRES_DB` на `Ваше значение`
+- Изменить `POSTGRES_USER` на `Ваше значение`
+- Изменить `POSTGRES_PASSWORD` на `Ваше значение`
+
+Если вы используете другие значения для базы данных, также измените healthcheck в `docker-compose.yaml`:
+- Изменить `pg_isready -U postgres -d payments-docker` на соответствующие ваши значения `POSTGRES_USER` и `POSTGRES_DB`
+
+После настройки запустить:
+
 ```bash
 docker compose up --build
 ```
